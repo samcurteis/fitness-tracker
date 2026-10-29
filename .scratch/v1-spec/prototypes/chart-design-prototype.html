@@ -1,0 +1,263 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Ticket 02 "Chart: how close to IntervalsCompanion".
+  Three variants of the v1 Fitness/Fatigue/Form page, switchable via ?variant=A|B|C
+  (bottom bar or ←/→). Mock data only; stack-agnostic because Stack (ticket 03) is undecided.
+  Assumptions: Form zones use intervals.icu's absolute defaults; projection assumes zero load ahead.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE Chart Design</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0f1115; --panel:#181b22; --text:#e6e8ec; --muted:#8a919e; --fitness:#3b82f6; --fatigue:#c084fc; --form:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, sans-serif; }
+  #banner { background:#7f1d1d; color:#fff; font-size:12px; text-align:center; padding:4px; }
+  #app { max-width:900px; margin:0 auto; padding:16px 16px 96px; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .panel { background:var(--panel); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .tiles { display:flex; gap:8px; margin-bottom:12px; }
+  .tile { flex:1; background:var(--panel); border-radius:10px; padding:10px; }
+  .tile .v { font-size:26px; font-weight:700; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .chip { background:var(--panel); color:var(--text); border:1px solid #2a2f3a; border-radius:999px; padding:4px 12px; cursor:pointer; }
+  .chip.on { background:var(--text); color:var(--bg); }
+  .hero { text-align:center; padding:24px 0 8px; }
+  .hero .v { font-size:72px; font-weight:800; line-height:1; }
+  .zonebar { position:relative; display:flex; height:14px; border-radius:7px; overflow:hidden; margin:16px 0 4px; }
+  .zonebar div { height:100%; }
+  .marker { position:absolute; top:-5px; width:4px; height:24px; background:#fff; border-radius:2px; }
+  .strip { display:flex; gap:4px; justify-content:space-between; }
+  .strip div { flex:1; text-align:center; font-size:12px; }
+  .strip span { display:block; height:28px; border-radius:6px; margin-bottom:4px; }
+  .spark { display:flex; align-items:center; gap:12px; }
+  .spark .lbl { width:90px; }
+  .spark .c { flex:1; height:50px; }
+  #switcher { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px;
+    background:#fff; color:#000; border-radius:999px; padding:6px 10px; box-shadow:0 4px 18px rgba(0,0,0,.5); font:600 13px system-ui; z-index:10; }
+  #switcher button { border:0; background:#000; color:#fff; width:28px; height:28px; border-radius:50%; cursor:pointer; font-size:16px; }
+</style>
+</head>
+<body>
+<div id="banner">PROTOTYPE · mock data · throwaway</div>
+<div id="app"></div>
+<div id="switcher"><button id="prev">‹</button><span id="label"></span><button id="next">›</button></div>
+<script>
+// ---- mock data: a year of daily load, Fitness/Fatigue as intervals.icu-style EWMAs ----
+let seed = 7; const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const kF = 1 - Math.exp(-1 / 42), kA = 1 - Math.exp(-1 / 7);
+const DAYS = 365, data = [];
+let fitness = 35, fatigue = 35;
+for (let i = DAYS - 1; i >= 0; i--) {
+  const d = new Date(); d.setDate(d.getDate() - i);
+  const dow = d.getDay(), block = Math.floor(i / 28) % 4; // 3 build weeks, 1 easy
+  let load = dow === 1 ? 0 : dow === 0 ? 110 : 45 + rand() * 40;
+  if (block === 0) load *= 0.5;
+  if (i < 10) load *= 1.4; // recent hard block so today sits in a zone worth showing
+  fitness += (load - fitness) * kF; fatigue += (load - fatigue) * kA;
+  data.push({ date: d, fitness, fatigue, form: fitness - fatigue });
+}
+const today = data[data.length - 1];
+const project = (n) => { // zero load ahead
+  let f = today.fitness, a = today.fatigue; const out = [];
+  for (let i = 1; i <= n; i++) { f *= 1 - kF; a *= 1 - kA; const d = new Date(); d.setDate(d.getDate() + i); out.push({ date: d, fitness: f, fatigue: a, form: f - a }); }
+  return out;
+};
+
+const ZONES = [
+  { name: 'Transition', min: 25, max: 999, color: 'rgba(250,204,21,.22)' },
+  { name: 'Fresh', min: 5, max: 25, color: 'rgba(59,130,246,.22)' },
+  { name: 'Grey zone', min: -10, max: 5, color: 'rgba(148,163,184,.22)' },
+  { name: 'Optimal', min: -30, max: -10, color: 'rgba(34,197,94,.25)' },
+  { name: 'High risk', min: -999, max: -30, color: 'rgba(239,68,68,.25)' },
+];
+const zoneOf = (form) => ZONES.find((z) => form >= z.min && form < z.max);
+const r = (n) => Math.round(n);
+const fmtDate = (d) => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+// shades Form zones behind whichever y axis is named in options.plugins.zones.axis
+const zonesPlugin = { id: 'zones', beforeDatasetsDraw(chart, _a, opts) {
+  if (!opts.axis) return;
+  const y = chart.scales[opts.axis], { ctx, chartArea: ca } = chart;
+  ctx.save();
+  for (const z of ZONES) {
+    const top = y.getPixelForValue(Math.min(z.max, y.max)), bot = y.getPixelForValue(Math.max(z.min, y.min));
+    if (bot <= top) continue;
+    ctx.fillStyle = z.color; ctx.fillRect(ca.left, top, ca.right - ca.left, bot - top);
+  }
+  ctx.restore();
+} };
+Chart.register(zonesPlugin);
+Chart.defaults.color = '#8a919e'; Chart.defaults.borderColor = '#2a2f3a';
+
+let charts = [];
+const line = (label, pts, key, color, extra = {}) => ({ label, data: pts.map((p) => p[key]), borderColor: color, backgroundColor: color, pointRadius: 0, borderWidth: 2, tension: 0.3, ...extra });
+const mk = (el, cfg) => { const c = new Chart(el, cfg); charts.push(c); return c; };
+const baseOpts = (extra = {}) => ({ responsive: true, maintainAspectRatio: false, animation: false,
+  interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false } }, ...extra });
+
+// ---- Variant A: IntervalsCompanion-style. Headline tiles, Fitness/Fatigue chart, Form pane with zones, fixed 30d ----
+function VariantA(app) {
+  const pts = data.slice(-30), z = zoneOf(today.form);
+  app.innerHTML = `
+    <h1>Training load <span class="muted">· last 30 days</span></h1>
+    <div class="tiles">
+      <div class="tile"><div class="muted">Fitness</div><div class="v" style="color:var(--fitness)">${r(today.fitness)}</div></div>
+      <div class="tile"><div class="muted">Fatigue</div><div class="v" style="color:var(--fatigue)">${r(today.fatigue)}</div></div>
+      <div class="tile"><div class="muted">Form · ${z.name}</div><div class="v" style="color:var(--form)">${r(today.form)}</div></div>
+    </div>
+    <div class="panel" style="height:240px"><canvas id="a1"></canvas></div>
+    <div class="panel" style="height:150px"><canvas id="a2"></canvas></div>`;
+  const labels = pts.map((p) => fmtDate(p.date));
+  mk(a1, { type: 'line', data: { labels, datasets: [line('Fitness', pts, 'fitness', '#3b82f6', { fill: true, backgroundColor: 'rgba(59,130,246,.15)' }), line('Fatigue', pts, 'fatigue', '#c084fc')] },
+    options: baseOpts({ scales: { x: { ticks: { maxTicksLimit: 6 } } } }) });
+  mk(a2, { type: 'line', data: { labels, datasets: [line('Form', pts, 'form', '#f59e0b')] },
+    options: baseOpts({ plugins: { legend: { display: false }, zones: { axis: 'y' } }, scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { min: -40, max: 30 } } }) });
+}
+
+// ---- Variant B: Form-first, phone glance. Big Form + zone, 7-day zone strip, sparklines; no main chart ----
+function VariantB(app) {
+  const z = zoneOf(today.form), week = data.slice(-7), pts = data.slice(-30);
+  const pct = (v) => ((Math.max(-40, Math.min(30, v)) + 40) / 70) * 100;
+  app.innerHTML = `
+    <div class="hero">
+      <div class="muted">Form today</div>
+      <div class="v" style="color:var(--form)">${r(today.form)}</div>
+      <div style="font-size:20px;font-weight:600">${z.name}</div>
+      <div class="muted">Fitness ${r(today.fitness)} · Fatigue ${r(today.fatigue)}</div>
+    </div>
+    <div class="panel">
+      <div class="zonebar">${[...ZONES].reverse().map((zz) => `<div style="flex:${Math.min(zz.max, 30) - Math.max(zz.min, -40)};background:${zz.color.replace(/[\d.]+\)$/, '.8)')}"></div>`).join('')}
+        <div class="marker" style="left:calc(${pct(today.form)}% - 2px)"></div></div>
+      <div class="muted" style="display:flex;justify-content:space-between"><span>High risk</span><span>Optimal</span><span>Grey</span><span>Fresh</span><span>Trans.</span></div>
+    </div>
+    <div class="panel"><div class="muted" style="margin-bottom:8px">Last 7 days</div>
+      <div class="strip">${week.map((p) => `<div><span style="background:${zoneOf(p.form).color.replace(/[\d.]+\)$/, '.8)')}"></span>${p.date.toLocaleDateString(undefined, { weekday: 'short' })}<br><b>${r(p.form)}</b></div>`).join('')}</div>
+    </div>
+    <div class="panel">
+      ${['fitness', 'fatigue', 'form'].map((k) => `<div class="spark"><div class="lbl">${k[0].toUpperCase() + k.slice(1)}<br><b>${r(today[k])}</b></div><div class="c"><canvas id="s-${k}"></canvas></div></div>`).join('')}
+      <div class="muted" style="text-align:right">30 days</div>
+    </div>`;
+  const colors = { fitness: '#3b82f6', fatigue: '#c084fc', form: '#f59e0b' };
+  for (const k of Object.keys(colors))
+    mk(document.getElementById('s-' + k), { type: 'line', data: { labels: pts.map((p) => fmtDate(p.date)), datasets: [line(k, pts, k, colors[k])] },
+      options: baseOpts({ plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } } }) });
+}
+
+// ---- Variant C: Explorer. One big chart, selectable range, Form on 2nd axis over zones, optional projection ----
+const cState = { days: 30, projection: true };
+function VariantC(app) {
+  app.innerHTML = `
+    <h1>Fitness · Fatigue · Form</h1>
+    <div class="chips">${[7, 30, 90, 365].map((d) => `<button class="chip ${cState.days === d ? 'on' : ''}" data-d="${d}">${d === 365 ? '1y' : d + 'd'}</button>`).join('')}
+      <button class="chip ${cState.projection ? 'on' : ''}" id="proj">Projection (rest)</button></div>
+    <div class="panel" style="height:70vh"><canvas id="c1"></canvas></div>
+    <div class="muted">Tap/hover for daily values. Dashed = projected if no training for 14 days.</div>`;
+  app.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => { cState.days = +b.dataset.d; render(); }));
+  proj.onclick = () => { cState.projection = !cState.projection; render(); };
+  const hist = data.slice(-cState.days), fut = cState.projection ? project(14) : [];
+  const all = [...hist, ...fut], pad = (arr) => [...arr, ...fut.map(() => null)];
+  const futOnly = (k) => [...hist.slice(0, -1).map(() => null), hist[hist.length - 1][k], ...fut.map((p) => p[k])];
+  const ds = [
+    { ...line('Fitness', hist, 'fitness', '#3b82f6'), data: pad(hist.map((p) => p.fitness)), yAxisID: 'y' },
+    { ...line('Fatigue', hist, 'fatigue', '#c084fc'), data: pad(hist.map((p) => p.fatigue)), yAxisID: 'y' },
+    { ...line('Form', hist, 'form', '#f59e0b'), data: pad(hist.map((p) => p.form)), yAxisID: 'y2' },
+  ];
+  if (fut.length) ds.push(
+    { ...line('Fitness (proj)', fut, 'fitness', '#3b82f6', { borderDash: [5, 4] }), data: futOnly('fitness'), yAxisID: 'y' },
+    { ...line('Fatigue (proj)', fut, 'fatigue', '#c084fc', { borderDash: [5, 4] }), data: futOnly('fatigue'), yAxisID: 'y' },
+    { ...line('Form (proj)', fut, 'form', '#f59e0b', { borderDash: [5, 4] }), data: futOnly('form'), yAxisID: 'y2' });
+  mk(c1, { type: 'line', data: { labels: all.map((p) => fmtDate(p.date)), datasets: ds },
+    options: baseOpts({
+      plugins: { legend: { display: true, labels: { filter: (i) => !i.text.includes('proj') } }, zones: { axis: 'y2' },
+        tooltip: { callbacks: { label: (c) => c.raw == null ? null : `${c.dataset.label}: ${r(c.raw)}` } } },
+      scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { position: 'left', title: { display: true, text: 'Fitness / Fatigue' } },
+        y2: { position: 'right', min: -40, max: 40, grid: { display: false }, title: { display: true, text: 'Form' } } } }) });
+}
+
+// ---- Variant D: combined from feedback. A's tiles + split charts, B's zone bar (reversed), C's range chips,
+//      Form as % of Fitness, no stripes, linked hover. % boundaries are PLACEHOLDERS pending ticket 05 research ----
+const PCT_ZONES = [ // left → right on the bar
+  { name: 'Transition', min: 20, max: 40, color: '#facc15' },
+  { name: 'Fresh', min: 5, max: 20, color: '#3b82f6' },
+  { name: 'Grey zone', min: -10, max: 5, color: '#94a3b8' },
+  { name: 'Optimal', min: -30, max: -10, color: '#22c55e' },
+  { name: 'High risk', min: -50, max: -30, color: '#ef4444' },
+];
+const pctOf = (p) => (p.form / p.fitness) * 100;
+const pctZone = (v) => PCT_ZONES.find((z) => v >= z.min && v < z.max) ?? (v >= 40 ? PCT_ZONES[0] : PCT_ZONES[4]);
+const crosshair = { id: 'crosshair', afterDatasetsDraw(chart) {
+  if (chart.$hover == null) return;
+  const x = chart.scales.x.getPixelForValue(chart.$hover), { ctx, chartArea: ca } = chart;
+  ctx.save(); ctx.strokeStyle = '#e6e8ec'; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(x, ca.top); ctx.lineTo(x, ca.bottom); ctx.stroke(); ctx.restore();
+} };
+Chart.register(crosshair);
+const dState = { days: 30 };
+function VariantD(app) {
+  const pts = data.slice(-dState.days), tPct = pctOf(today), z = pctZone(tPct);
+  const pos = (v) => ((40 - Math.max(-50, Math.min(40, v))) / 90) * 100;
+  app.innerHTML = `
+    <div class="chips">${[7, 30, 90, 365].map((d) => `<button class="chip ${dState.days === d ? 'on' : ''}" data-d="${d}">${d === 365 ? '1y' : d + 'd'}</button>`).join('')}</div>
+    <div class="tiles">
+      <div class="tile"><div class="muted">Fitness</div><div class="v" style="color:var(--fitness)">${r(today.fitness)}</div></div>
+      <div class="tile"><div class="muted">Fatigue</div><div class="v" style="color:var(--fatigue)">${r(today.fatigue)}</div></div>
+      <div class="tile"><div class="muted">Form · ${z.name}</div><div class="v" style="color:var(--form)">${r(tPct)}%</div></div>
+    </div>
+    <div class="panel">
+      <div class="zonebar">${PCT_ZONES.map((zz) => `<div style="flex:${zz.max - zz.min};background:${zz.color}"></div>`).join('')}
+        <div class="marker" style="left:calc(${pos(tPct)}% - 2px)"></div></div>
+      <div class="muted" style="display:flex;justify-content:space-between"><span>Transition</span><span>Fresh</span><span>Grey</span><span>Optimal</span><span>High risk</span></div>
+    </div>
+    <div class="panel muted" id="readout" style="padding:8px 12px"></div>
+    <div class="panel" style="height:240px"><canvas id="d1"></canvas></div>
+    <div class="panel" style="height:150px"><canvas id="d2"></canvas></div>`;
+  app.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => { dState.days = +b.dataset.d; render(); }));
+  const labels = pts.map((p) => fmtDate(p.date));
+  const showDay = (i) => {
+    const p = pts[i ?? pts.length - 1];
+    readout.innerHTML = `<b style="color:var(--text)">${i == null ? 'Today' : fmtDate(p.date)}</b> · Fitness ${r(p.fitness)} · Fatigue ${r(p.fatigue)} · Form ${r(pctOf(p))}% (${pctZone(pctOf(p)).name})`;
+  };
+  const opts = (extra) => baseOpts({ ...extra, events: ['mousemove', 'mouseout', 'touchstart', 'touchmove'],
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    onHover: (e, _els, chart) => {
+      const i = e.type === 'mouseout' ? null : Math.max(0, Math.min(pts.length - 1, Math.round(chart.scales.x.getValueForPixel(e.x))));
+      for (const c of [top, bottom]) { c.$hover = i; c.draw(); }
+      showDay(i);
+    } });
+  const top = mk(d1, { type: 'line', data: { labels, datasets: [line('Fitness', pts, 'fitness', '#3b82f6', { fill: true, backgroundColor: 'rgba(59,130,246,.15)' }), line('Fatigue', pts, 'fatigue', '#c084fc')] },
+    options: opts({ scales: { x: { ticks: { maxTicksLimit: 6 } } } }) });
+  const bottom = mk(d2, { type: 'line', data: { labels, datasets: [{ ...line('Form %', pts, 'form', '#f59e0b'), data: pts.map(pctOf) }] },
+    options: opts({ scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { ticks: { callback: (v) => v + '%' } } } }) });
+  showDay(null);
+}
+
+// ---- switcher ----
+const VARIANTS = { A: ['Companion-style', VariantA], B: ['Form-first glance', VariantB], C: ['Explorer', VariantC], D: ['Combined', VariantD] };
+const keys = Object.keys(VARIANTS);
+let current = new URLSearchParams(location.search).get('variant')?.toUpperCase();
+if (!VARIANTS[current]) current = 'A';
+function render() {
+  charts.forEach((c) => c.destroy()); charts = [];
+  const app = document.getElementById('app');
+  VARIANTS[current][1](app);
+  label.textContent = `${current} (${VARIANTS[current][0]})`;
+  console.log('variant', current, 'today', { fitness: r(today.fitness), fatigue: r(today.fatigue), form: r(today.form), zone: zoneOf(today.form).name });
+}
+function go(step) {
+  current = keys[(keys.indexOf(current) + step + keys.length) % keys.length];
+  const u = new URL(location.href); u.searchParams.set('variant', current); history.replaceState(null, '', u);
+  render();
+}
+prev.onclick = () => go(-1); next.onclick = () => go(1);
+addEventListener('keydown', (e) => {
+  if (e.target.closest('input,textarea,[contenteditable]')) return;
+  if (e.key === 'ArrowLeft') go(-1); if (e.key === 'ArrowRight') go(1);
+});
+render();
+</script>
+</body>
+</html>
