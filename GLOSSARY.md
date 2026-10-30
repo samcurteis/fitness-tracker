@@ -18,6 +18,10 @@ _Avoid_: ATL, acute training load
 Fitness minus Fatigue; indicates freshness for training or racing.
 _Avoid_: TSB, training stress balance, freshness
 
+**Rest day**:
+A day with no training load; Fitness and Fatigue still exist for it and decay, so it is not missing data.
+_Avoid_: gap, missing day
+
 ### Sources
 
 **Athlete**:
