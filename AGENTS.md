@@ -16,6 +16,12 @@ Default five-role vocabulary. See `docs/agents/triage-labels.md`.
 
 Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
+## Commands
+
+- Install: `pnpm install`
+- Verify (must pass before done): `pnpm verify`
+- One test file: `pnpm vitest run src/lib/training-load.test.ts`
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know
