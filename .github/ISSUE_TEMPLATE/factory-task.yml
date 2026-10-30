@@ -1,0 +1,32 @@
+name: Factory task
+description: A unit of work small enough for one agent run.
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One or two sentences. What changes for the user?
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Each line checkable by running something.
+      value: "- [ ] "
+    validations: { required: true }
+  - type: textarea
+    id: verify
+    attributes:
+      label: How to verify
+      description: Exact command(s) whose exit code means done.
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+  - type: textarea
+    id: hints
+    attributes:
+      label: Hints
+      description: Things Claude can't see from the repo.
