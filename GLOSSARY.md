@@ -21,5 +21,6 @@ _Avoid_: TSB, training stress balance, freshness
 ### Sources
 
 **Athlete**:
-The single intervals.icu account whose data the app reads (v1: the owner, via personal API key).
+The intervals.icu account whose API key is entered in the current browser; the app shows only that Athlete's data.
+There is no separate visitor or user: whoever is viewing is the Athlete.
 _Avoid_: user, account
