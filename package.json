@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",
-    "verify": "next typegen && tsc --noEmit && vitest run"
+    "verify": "next typegen && tsc --noEmit && eslint && vitest run"
   },
   "dependencies": {
     "next": "16.4.3",

@@ -22,6 +22,11 @@ Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 - Verify (must pass before done): `pnpm verify`
 - One test file: `pnpm vitest run src/lib/training-load.test.ts`
 
+## Gotchas
+
+- intervals.icu wellness `fatigue` is a subjective wellness score, not Fatigue. Fatigue is `atl`; Fitness is `ctl`.
+- Tests never call live intervals.icu: MSW in Vitest, the stub server (via `INTERVALS_BASE_URL`) in Playwright.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know
