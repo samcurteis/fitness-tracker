@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { submitKey, type KeyFormState } from "./key-actions";
 
 export const SETTINGS_URL = "https://intervals.icu/settings";
@@ -10,9 +10,17 @@ export function KeyForm({ error }: { error?: string }) {
     submitKey,
     { error },
   );
+  // Filled after hydration; without JS the server falls back to UTC.
+  const tzRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (tzRef.current) {
+      tzRef.current.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+  }, []);
 
   return (
     <form action={action}>
+      <input ref={tzRef} type="hidden" name="tz" defaultValue="" />
       <label htmlFor="key">intervals.icu API key</label>
       <input
         id="key"

@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { oneYearBefore, today } from "@/lib/dates";
 import { getWellness } from "@/lib/get-wellness";
-import { KEY_COOKIE } from "@/lib/key-cookie";
+import { KEY_COOKIE, TZ_COOKIE } from "@/lib/key-cookie";
 import { forgetKey } from "./key-actions";
 import { KeyForm } from "./key-form";
 import { TodayLoad } from "./today-load";
@@ -20,11 +20,12 @@ export default function Home() {
 }
 
 async function Content() {
-  const key = (await cookies()).get(KEY_COOKIE)?.value;
+  const store = await cookies();
+  const key = store.get(KEY_COOKIE)?.value;
   if (!key) return <KeyForm />;
 
   await connection(); // today() reads the clock, so render at request time
-  const newest = today();
+  const newest = today(store.get(TZ_COOKIE)?.value);
   const rows = await getWellness(key, { oldest: oneYearBefore(newest), newest });
 
   return (
