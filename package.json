@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest",
     "test:e2e": "playwright test",
-    "verify": "next typegen && tsc --noEmit && eslint && vitest run"
+    "verify": "next typegen && tsc --noEmit && eslint && vitest run",
+    "verify:all": "pnpm verify && pnpm test:e2e"
   },
   "dependencies": {
     "next": "16.4.3",
