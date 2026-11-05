@@ -1,7 +1,15 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { getWellness, InvalidKey } from "./get-wellness";
+import {
+  getWellness,
+  IntervalsUnavailable,
+  InvalidKey,
+  parseErrorDigest,
+  RateLimited,
+} from "./get-wellness";
+
+const WELLNESS = "https://intervals.icu/api/v1/athlete/0/wellness";
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
@@ -71,5 +79,80 @@ describe("getWellness", () => {
     );
 
     await expect(getWellness("bad", range)).rejects.toBeInstanceOf(InvalidKey);
+  });
+
+  test("429 with Retry-After: 120 throws RateLimited carrying 2 minutes", async () => {
+    server.use(
+      http.get(WELLNESS, () =>
+        new HttpResponse(null, { status: 429, headers: { "Retry-After": "120" } }),
+      ),
+    );
+
+    const error = await getWellness("k", range).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RateLimited);
+    expect((error as RateLimited).retryAfterMinutes).toBe(2);
+    expect(parseErrorDigest((error as RateLimited).digest)).toEqual({
+      kind: "rate-limited",
+      retryAfterMinutes: 2,
+    });
+  });
+
+  test("429 rounds Retry-After up to whole minutes, defaulting to 1", async () => {
+    server.use(
+      http.get(WELLNESS, () =>
+        new HttpResponse(null, { status: 429, headers: { "Retry-After": "61" } }),
+      ),
+    );
+    await expect(getWellness("k", range)).rejects.toMatchObject({ retryAfterMinutes: 2 });
+
+    server.use(http.get(WELLNESS, () => new HttpResponse(null, { status: 429 })));
+    await expect(getWellness("k", range)).rejects.toMatchObject({ retryAfterMinutes: 1 });
+  });
+
+  test.each([500, 502, 503])("%i throws IntervalsUnavailable", async (status) => {
+    server.use(http.get(WELLNESS, () => new HttpResponse(null, { status })));
+
+    const error = await getWellness("k", range).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(IntervalsUnavailable);
+    expect(parseErrorDigest((error as IntervalsUnavailable).digest)).toEqual({
+      kind: "unavailable",
+    });
+  });
+
+  test("a network error throws IntervalsUnavailable", async () => {
+    server.use(http.get(WELLNESS, () => HttpResponse.error()));
+
+    await expect(getWellness("k", range)).rejects.toBeInstanceOf(IntervalsUnavailable);
+  });
+
+  test("no response within the ~10s timeout throws IntervalsUnavailable", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => realTimeout(20)); // stand in for 10s
+    server.use(
+      http.get(WELLNESS, async () => {
+        await delay("infinite");
+        return HttpResponse.json([]);
+      }),
+    );
+
+    await expect(getWellness("k", range)).rejects.toBeInstanceOf(IntervalsUnavailable);
+    expect(timeout).toHaveBeenCalledWith(10_000);
+    timeout.mockRestore();
+  });
+
+  test("an empty array returns [] without throwing", async () => {
+    server.use(http.get(WELLNESS, () => HttpResponse.json([])));
+
+    await expect(getWellness("k", range)).resolves.toEqual([]);
+  });
+});
+
+describe("parseErrorDigest", () => {
+  test("ignores digests that are not intervals.icu failures", () => {
+    expect(parseErrorDigest(undefined)).toBeUndefined();
+    expect(parseErrorDigest("1234567")).toBeUndefined();
+    expect(parseErrorDigest("intervals:rate-limited:abc")).toBeUndefined();
   });
 });

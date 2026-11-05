@@ -26,10 +26,15 @@ describe("KeyForm", () => {
     expect(tz?.value).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
-  test("shows the inline error when one is given", () => {
-    render(<KeyForm error="intervals.icu rejected this key" />);
+  test("shows 'intervals.icu rejected this key' when given error=invalid-key", () => {
+    render(<KeyForm error="invalid-key" />);
     expect(screen.getByRole("alert").textContent).toBe(
       "intervals.icu rejected this key",
     );
+  });
+
+  test("ignores an unknown error code", () => {
+    render(<KeyForm error="<script>" />);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
