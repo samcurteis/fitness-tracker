@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 import { STUB_PORT } from "./e2e/stub-intervals";
 
-const APP_PORT = 3100;
+const APP_PORT = Number(process.env.E2E_APP_PORT || 3100);
 
 export default defineConfig({
   testDir: "e2e",

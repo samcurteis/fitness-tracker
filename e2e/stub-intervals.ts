@@ -2,7 +2,7 @@
 // Run with `node e2e/stub-intervals.ts` (Node strips the types).
 import { createServer } from "node:http";
 
-export const STUB_PORT = 4010;
+export const STUB_PORT = Number(process.env.E2E_STUB_PORT || 4010);
 export const VALID_KEY = "e2e-valid-key";
 /** Every served day has the same load, so whichever day is "today" shows these. */
 export const FIXTURE = { ctl: 62.4, atl: 48.1 };
