@@ -5,7 +5,7 @@ set -uo pipefail
 cd "$CLAUDE_PROJECT_DIR"
 
 # Nothing changed: nothing to verify.
-if [[ -z "$(git status --porcelain)" && "$(git rev-parse HEAD)" == "$(rev-parse origin/main)" ]]; then
+if [[ -z "$(git status --porcelain)" && "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]; then
   exit 0
 fi
 
