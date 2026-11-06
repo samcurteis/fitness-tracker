@@ -53,6 +53,14 @@ export type CurrentValues = {
 };
 
 /**
+ * Whether any row has both Fitness and Fatigue. Only null counts as missing,
+ * so all-zero data is still training data (the headline shows "Not enough data").
+ */
+export function hasTrainingData(rows: readonly WellnessRow[]): boolean {
+  return rows.some((r) => r.fitness !== null && r.fatigue !== null);
+}
+
+/**
  * Today's values, or the latest earlier day with values ("as of" that date).
  * Undefined when no day has values.
  */
