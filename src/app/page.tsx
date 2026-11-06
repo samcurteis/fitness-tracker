@@ -4,9 +4,10 @@ import { connection } from "next/server";
 import { oneYearBefore, today } from "@/lib/dates";
 import { getWellness } from "@/lib/get-wellness";
 import { KEY_COOKIE, TZ_COOKIE } from "@/lib/key-cookie";
+import { currentValues } from "@/lib/training-load";
+import { Headline } from "./headline";
 import { forgetKey } from "./key-actions";
 import { KeyForm } from "./key-form";
-import { TodayLoad } from "./today-load";
 
 export default function Home() {
   return (
@@ -30,7 +31,7 @@ async function Content() {
 
   return (
     <>
-      <TodayLoad rows={rows} />
+      <Headline current={currentValues(rows, newest)} />
       <form action={forgetKey}>
         <button type="submit">Forget key</button>
       </form>
