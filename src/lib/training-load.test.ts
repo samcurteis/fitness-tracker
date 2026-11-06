@@ -1,10 +1,166 @@
 import { describe, expect, test } from "vitest";
+import { addDays } from "./dates";
+import type { WellnessRow } from "./get-wellness";
 import {
   currentValues,
   displayedFormPercent,
   form,
+  formSegmentColour,
+  RANGES,
+  rangeStart,
+  sliceRange,
+  toChartData,
+  ZONE_COLOURS,
   zoneOf,
 } from "./training-load";
+
+/** One row per day from `oldest` to `newest`, all with the same load. */
+function daily(oldest: string, newest: string, load = { fitness: 50, fatigue: 40 }) {
+  const rows: WellnessRow[] = [];
+  for (let d = oldest; d <= newest; d = addDays(d, 1)) rows.push({ date: d, ...load });
+  return rows;
+}
+
+describe("range slicing", () => {
+  const today = "2026-11-06";
+  const rows = daily("2025-11-01", today);
+
+  test.each([
+    ["42D", "2026-09-26"],
+    ["14D", "2026-10-24"],
+    ["3M", "2026-08-06"],
+    ["6M", "2026-05-06"],
+    ["1Y", "2025-11-06"],
+    ["YTD", "2026-01-01"],
+  ] as const)("%s starts %s and ends today", (range, start) => {
+    expect(rangeStart(range, today)).toBe(start);
+    const sliced = sliceRange(rows, range, today);
+    expect(sliced[0].date).toBe(start);
+    expect(sliced.at(-1)?.date).toBe(today);
+  });
+
+  test("nD has n days including today", () => {
+    expect(sliceRange(rows, "42D", today)).toHaveLength(42);
+    expect(sliceRange(rows, "14D", today)).toHaveLength(14);
+  });
+
+  test("covers all six ranges", () => {
+    expect(RANGES).toEqual(["YTD", "1Y", "6M", "3M", "42D", "14D"]);
+  });
+
+  test("month ranges clamp to the end of a shorter month", () => {
+    expect(rangeStart("3M", "2026-05-31")).toBe("2026-02-28");
+  });
+
+  test("a range longer than the data returns what exists, from the earliest row with values", () => {
+    const short = [
+      { date: "2026-10-01", fitness: null, fatigue: null },
+      { date: "2026-10-02", fitness: 10, fatigue: null },
+      ...daily("2026-10-03", today),
+    ];
+    for (const range of ["YTD", "1Y", "6M", "3M", "42D"] as const) {
+      const sliced = sliceRange(short, range, today);
+      expect(sliced[0].date).toBe("2026-10-03");
+      expect(sliced.at(-1)?.date).toBe(today);
+    }
+  });
+
+  test("ignores rows after today", () => {
+    const sliced = sliceRange(daily("2026-11-01", "2026-11-10"), "14D", today);
+    expect(sliced.at(-1)?.date).toBe(today);
+  });
+});
+
+describe("toChartData", () => {
+  const today = "2026-11-06";
+
+  test("labels are every date from the range start to today", () => {
+    const data = toChartData(daily("2026-01-01", today), "14D", today);
+    expect(data.labels).toHaveLength(14);
+    expect(data.labels[0]).toBe("2026-10-24");
+    data.labels.forEach((d, i) => {
+      if (i > 0) expect(d).toBe(addDays(data.labels[i - 1], 1));
+    });
+    expect(data.labels.at(-1)).toBe(today);
+  });
+
+  test("a missing interior date becomes a null point; neighbours unchanged", () => {
+    const rows = daily("2026-10-24", today).filter((r) => r.date !== "2026-11-01");
+    rows[0] = { ...rows[0], fitness: 30, fatigue: 20 };
+    const data = toChartData(rows, "14D", today);
+    const i = data.labels.indexOf("2026-11-01");
+    expect(i).toBeGreaterThan(0);
+    expect(data.fitness[i]).toBeNull();
+    expect(data.fatigue[i]).toBeNull();
+    expect(data.formPercent[i]).toBeNull();
+    expect(data.fitness[i - 1]).toBe(50);
+    expect(data.fitness[i + 1]).toBe(50);
+    expect(data.fitness[0]).toBe(30);
+    expect(data.formPercent[i + 1]).toBe(20);
+  });
+
+  test("a row with null Fitness or Fatigue becomes a null point", () => {
+    const rows = daily("2026-10-24", today).map((r) =>
+      r.date === "2026-10-30"
+        ? { ...r, fitness: null }
+        : r.date === "2026-10-31"
+          ? { ...r, fatigue: null }
+          : r,
+    );
+    const data = toChartData(rows, "14D", today);
+    for (const d of ["2026-10-30", "2026-10-31"]) {
+      const i = data.labels.indexOf(d);
+      expect(data.fitness[i]).toBeNull();
+      expect(data.fatigue[i]).toBeNull();
+      expect(data.formPercent[i]).toBeNull();
+    }
+    const next = data.labels.indexOf("2026-11-01");
+    expect(data.fitness[next]).toBe(50);
+    expect(data.fatigue[next]).toBe(40);
+  });
+
+  test("Form % is unrounded and null when Fitness is 0", () => {
+    const rows = [
+      { date: "2026-11-05", fitness: 100, fatigue: 109.6 },
+      { date: today, fitness: 0, fatigue: 5 },
+    ];
+    const data = toChartData(rows, "14D", today);
+    expect(data.labels).toEqual(["2026-11-05", today]);
+    expect(data.formPercent[0]).toBeCloseTo(-9.6);
+    expect(data.formPercent[1]).toBeNull();
+    expect(data.fitness[1]).toBe(0);
+  });
+
+  test("no rows with values → empty", () => {
+    expect(toChartData([], "42D", today).labels).toEqual([]);
+  });
+});
+
+describe("formSegmentColour", () => {
+  test.each([
+    [20, "Transition"],
+    [19.99, "Fresh"],
+    [5, "Fresh"],
+    [4.99, "Grey zone"],
+    [-9.99, "Grey zone"],
+    [-9.6, "Grey zone"],
+    [-10, "Optimal"],
+    [-29.99, "Optimal"],
+    [-30, "High risk"],
+  ] as const)("ending at %d → %s colour", (p1, zone) => {
+    expect(formSegmentColour(0, p1)).toBe(ZONE_COLOURS[zone]);
+  });
+
+  test("uses the end point (p1), not the start", () => {
+    expect(formSegmentColour(25, -15)).toBe(ZONE_COLOURS.Optimal);
+  });
+
+  test("is null when either end is missing", () => {
+    expect(formSegmentColour(null, 10)).toBeNull();
+    expect(formSegmentColour(10, null)).toBeNull();
+    expect(formSegmentColour(undefined, 10)).toBeNull();
+  });
+});
 
 describe("form", () => {
   test("is Fitness minus Fatigue for the same day", () => {
