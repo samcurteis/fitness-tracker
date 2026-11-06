@@ -1,13 +1,6 @@
-import { ZONES, type Zone } from "@/lib/training-load";
+import { ZONE_COLOURS, ZONES, type Zone } from "@/lib/training-load";
 
-/** Zone colours from the chart-design prototype (variant D). */
-export const ZONE_COLOURS: Record<Zone, string> = {
-  Transition: "#facc15",
-  Fresh: "#3b82f6",
-  "Grey zone": "#94a3b8",
-  Optimal: "#22c55e",
-  "High risk": "#ef4444",
-};
+export { ZONE_COLOURS };
 
 /** The five zones left → right, with a marker in `current` (none when undefined). */
 export function ZoneBar({ current }: { current: Zone | undefined }) {

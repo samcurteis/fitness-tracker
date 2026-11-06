@@ -1,4 +1,4 @@
-import type { IsoDate } from "./dates";
+import { addDays, monthsBefore, oneYearBefore, type IsoDate } from "./dates";
 import type { WellnessRow } from "./get-wellness";
 
 type Load = Pick<WellnessRow, "fitness" | "fatigue">;
@@ -39,6 +39,113 @@ export function zoneOf(formPercent: number): Zone {
   if (formPercent > -10) return "Grey zone";
   if (formPercent > -30) return "Optimal";
   return "High risk";
+}
+
+/** Zone colours from the chart-design prototype (variant D). */
+export const ZONE_COLOURS: Record<Zone, string> = {
+  Transition: "#facc15",
+  Fresh: "#3b82f6",
+  "Grey zone": "#94a3b8",
+  Optimal: "#22c55e",
+  "High risk": "#ef4444",
+};
+
+export const RANGES = ["YTD", "1Y", "6M", "3M", "42D", "14D"] as const;
+
+export type Range = (typeof RANGES)[number];
+
+export const DEFAULT_RANGE: Range = "42D";
+
+/** First date of `range` ending `today` (inclusive). nD is n days including today. */
+export function rangeStart(range: Range, today: IsoDate): IsoDate {
+  switch (range) {
+    case "YTD":
+      return `${today.slice(0, 4)}-01-01`;
+    case "1Y":
+      return oneYearBefore(today);
+    case "6M":
+      return monthsBefore(today, 6);
+    case "3M":
+      return monthsBefore(today, 3);
+    case "42D":
+      return addDays(today, -41);
+    case "14D":
+      return addDays(today, -13);
+  }
+}
+
+function hasLoad(row: Load): boolean {
+  return row.fitness !== null && row.fatigue !== null;
+}
+
+/**
+ * The rows in `range` ending `today`, by date. When the data starts later than
+ * the range, starts at the earliest row with Fitness and Fatigue.
+ */
+export function sliceRange(
+  rows: readonly WellnessRow[],
+  range: Range,
+  today: IsoDate,
+): WellnessRow[] {
+  const start = rangeStart(range, today);
+  const inRange = rows
+    .filter((r) => r.date >= start && r.date <= today)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const first = inRange.findIndex(hasLoad);
+  return first === -1 ? [] : inRange.slice(first);
+}
+
+export type ChartData = {
+  labels: IsoDate[];
+  fitness: (number | null)[];
+  fatigue: (number | null)[];
+  /** Unrounded Form %; null when a value is missing or Fitness is 0. */
+  formPercent: (number | null)[];
+};
+
+/** Unrounded Form % for the chart line; null when a value is missing or Fitness is 0. */
+export function formPercent(row: Load): number | null {
+  const f = form(row);
+  if (f === null || row.fitness === 0) return null;
+  return (f * 100) / row.fitness!;
+}
+
+/**
+ * One point per date from the start of the sliced range to `today`. Dates with
+ * no row, or a row without values, are null points. No interpolation.
+ */
+export function toChartData(
+  rows: readonly WellnessRow[],
+  range: Range,
+  today: IsoDate,
+): ChartData {
+  const sliced = sliceRange(rows, range, today);
+  const data: ChartData = { labels: [], fitness: [], fatigue: [], formPercent: [] };
+  if (sliced.length === 0) return data;
+  const byDate = new Map(sliced.map((r) => [r.date, r]));
+  for (let d = sliced[0].date; d <= today; d = addDays(d, 1)) {
+    const row = byDate.get(d);
+    const ok = row !== undefined && hasLoad(row);
+    data.labels.push(d);
+    data.fitness.push(ok ? row.fitness : null);
+    data.fatigue.push(ok ? row.fatigue : null);
+    data.formPercent.push(ok ? formPercent(row) : null);
+  }
+  return data;
+}
+
+/**
+ * Colour of the Form % segment from `p0` to `p1`: the zone of `p1`, the day the
+ * line arrives at (unrounded). Null when either end is missing.
+ */
+export function formSegmentColour(
+  p0: number | null | undefined,
+  p1: number | null | undefined,
+): string | null {
+  if (p0 == null || p1 == null || Number.isNaN(p0) || Number.isNaN(p1)) {
+    return null;
+  }
+  return ZONE_COLOURS[zoneOf(p1)];
 }
 
 export type CurrentValues = {

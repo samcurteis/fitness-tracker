@@ -28,6 +28,27 @@ export function today(timeZone?: string): IsoDate {
   }).format(new Date());
 }
 
+/** `date` moved by `days` (negative for earlier). */
+export function addDays(date: IsoDate, days: number): IsoDate {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return toIsoDate(d);
+}
+
+/**
+ * The same day `months` calendar months before `date`, clamped to the end of
+ * the month when that day doesn't exist (e.g. 3 months before 31 May is 28/29 Feb).
+ */
+export function monthsBefore(date: IsoDate, months: number): IsoDate {
+  const [y, m, day] = date.split("-").map(Number);
+  const target = new Date(Date.UTC(y, m - 1 - months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return toIsoDate(target);
+}
+
 /** The date one year before `date` (same month and day). */
 export function oneYearBefore(date: IsoDate): IsoDate {
   const d = new Date(`${date}T00:00:00Z`);
