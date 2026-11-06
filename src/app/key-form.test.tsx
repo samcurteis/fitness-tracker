@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { keyErrorCopy } from "./error-copy";
 import { KeyForm } from "./key-form";
 
 vi.mock("./key-actions", () => ({ submitKey: vi.fn() }));
@@ -25,6 +26,22 @@ describe("KeyForm", () => {
     const tz = container.querySelector<HTMLInputElement>("input[name=tz]");
     expect(tz?.value).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
+
+  test("?error=invalid-key shows that intervals.icu rejected the key", () => {
+    render(<KeyForm error={keyErrorCopy("invalid-key")} />);
+    expect(screen.getByRole("alert").textContent).toBe(
+      "intervals.icu rejected this key",
+    );
+  });
+
+  test.each([undefined, "nonsense", "toString", ["invalid-key", "x"]])(
+    "?error=%j shows no error",
+    (code) => {
+      expect(keyErrorCopy(code)).toBeUndefined();
+      render(<KeyForm error={keyErrorCopy(code)} />);
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
 
   test("shows the inline error when one is given", () => {
     render(<KeyForm error="intervals.icu rejected this key" />);

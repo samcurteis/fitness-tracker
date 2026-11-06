@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { isValidTimeZone, today } from "@/lib/dates";
 import { getWellness, InvalidKey } from "@/lib/get-wellness";
 import { KEY_COOKIE, KEY_COOKIE_MAX_AGE, TZ_COOKIE } from "@/lib/key-cookie";
+import { keyErrorCopy } from "./error-copy";
 
 export type KeyFormState = { error?: string };
 
@@ -32,7 +33,7 @@ export async function submitKey(
   try {
     await getWellness(key, { oldest: date, newest: date });
   } catch (e) {
-    if (e instanceof InvalidKey) return { error: "intervals.icu rejected this key" };
+    if (e instanceof InvalidKey) return { error: keyErrorCopy("invalid-key") };
     throw e;
   }
 
