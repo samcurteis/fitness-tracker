@@ -134,6 +134,63 @@ describe("toChartData", () => {
   test("no rows with values → empty", () => {
     expect(toChartData([], "42D", today).labels).toEqual([]);
   });
+
+  function expectFullLengthWithNullStart(rows: WellnessRow[]) {
+    const start = rangeStart("42D", today);
+    const data = toChartData(rows, "42D", today);
+    expect(data.labels).toHaveLength(42);
+    expect(data.labels[0]).toBe(start);
+    expect(data.labels.at(-1)).toBe(today);
+    expect(data.fitness[0]).toBeNull();
+    expect(data.fatigue[0]).toBeNull();
+    expect(data.formPercent[0]).toBeNull();
+    expect(data.fitness[1]).toBe(50);
+  }
+
+  test("data before range start: null range-start row kept as null point", () => {
+    const start = rangeStart("42D", today);
+    const rows = daily(addDays(today, -59), today).map((r) =>
+      r.date === start ? { ...r, fitness: null, fatigue: null } : r,
+    );
+    expectFullLengthWithNullStart(rows);
+  });
+
+  test("data before range start: missing range-start row kept as null point", () => {
+    const start = rangeStart("42D", today);
+    const rows = daily(addDays(today, -59), today).filter((r) => r.date !== start);
+    expectFullLengthWithNullStart(rows);
+  });
+
+  test("range longer than data starts at earliest row with values", () => {
+    const rows = daily(addDays(today, -9), today).map((r, i) =>
+      i < 2 ? { ...r, fitness: null, fatigue: null } : r,
+    );
+    const data = toChartData(rows, "42D", today);
+    expect(data.labels).toHaveLength(8);
+    expect(data.labels[0]).toBe(addDays(today, -7));
+    expect(data.fitness[0]).toBe(50);
+  });
+
+  test("rows before range start without values don't count as data", () => {
+    const rows = [
+      ...daily(addDays(today, -59), addDays(today, -10)).map((r) => ({
+        ...r,
+        fitness: null,
+        fatigue: null,
+      })),
+      ...daily(addDays(today, -9), today),
+    ];
+    const data = toChartData(rows, "42D", today);
+    expect(data.labels).toHaveLength(10);
+    expect(data.labels[0]).toBe(addDays(today, -9));
+  });
+
+  test("data before range start but none in range → full-length null points", () => {
+    const rows = daily(addDays(today, -59), addDays(today, -42));
+    const data = toChartData(rows, "42D", today);
+    expect(data.labels).toHaveLength(42);
+    expect(data.fitness.every((v) => v === null)).toBe(true);
+  });
 });
 
 describe("formSegmentColour", () => {
