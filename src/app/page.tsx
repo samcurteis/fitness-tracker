@@ -19,6 +19,7 @@ import { Headline } from "./headline";
 import { forgetKey } from "./key-actions";
 import { KeyForm } from "./key-form";
 import Loading from "./loading";
+import { TrainingCharts } from "./training-charts";
 
 export default function Home({ searchParams }: PageProps<"/">) {
   return (
@@ -56,6 +57,7 @@ async function Content({ searchParams }: Pick<PageProps<"/">, "searchParams">) {
   return (
     <>
       <Headline current={currentValues(rows, newest)} />
+      <TrainingCharts rows={rows} today={newest} />
       <form action={forgetKey}>
         <button type="submit">Forget key</button>
       </form>
