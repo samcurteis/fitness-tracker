@@ -15,8 +15,10 @@ test("key flow: wrong key, valid key, forget key", async ({ page }) => {
 
   await keyInput.fill(VALID_KEY);
   await save.click();
-  const fitness = page.locator("dt", { hasText: "Fitness" }).locator("+ dd");
-  const fatigue = page.locator("dt", { hasText: "Fatigue" }).locator("+ dd");
+  // Scoped to the headline: the hover readout also has Fitness/Fatigue.
+  const headline = page.getByRole("region", { name: "Today" });
+  const fitness = headline.locator("dt", { hasText: "Fitness" }).locator("+ dd");
+  const fatigue = headline.locator("dt", { hasText: "Fatigue" }).locator("+ dd");
   await expect(fitness).toHaveText(String(Math.round(FIXTURE.ctl)));
   await expect(fatigue).toHaveText(String(Math.round(FIXTURE.atl)));
 

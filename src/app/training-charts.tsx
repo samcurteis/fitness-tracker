@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   CategoryScale,
   Chart as ChartJS,
@@ -16,12 +16,15 @@ import { Line } from "react-chartjs-2";
 import type { IsoDate } from "@/lib/dates";
 import type { WellnessRow } from "@/lib/get-wellness";
 import {
+  currentValues,
   DEFAULT_RANGE,
+  displayedFormPercent,
   formSegmentColour,
   RANGES,
   toChartData,
   type Range,
 } from "@/lib/training-load";
+import { HoverReadout, type ReadoutDay } from "./hover-readout";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -33,23 +36,47 @@ const baseOptions: ChartOptions<"line"> = {
   responsive: true,
   maintainAspectRatio: false,
   animation: false,
+  // A tap anywhere on a day's x position picks that day (phones).
+  interaction: { mode: "index", intersect: false },
   elements: { point: { radius: 0 } },
   scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } },
 };
 
-const loadOptions: ChartOptions<"line"> = {
-  ...baseOptions,
-  plugins: { legend: { display: true } },
-};
+type LineChart = ChartJS<"line", (number | null)[], IsoDate>;
 
-const formOptions: ChartOptions<"line"> = {
-  ...baseOptions,
-  plugins: { legend: { display: false } },
-};
+/** Datasets per chart: Fitness + Fatigue; Form %. */
+const LOAD_DATASETS = 2;
+const FORM_DATASETS = 1;
+
+/** Highlight day `index` on `chart` (each of its datasets, plus tooltip); clear when null. */
+function highlight(chart: LineChart | null, datasets: number, index: number | null) {
+  if (!chart) return;
+  const active =
+    index === null
+      ? []
+      : Array.from({ length: datasets }, (_, datasetIndex) => ({ datasetIndex, index }));
+  chart.setActiveElements(active);
+  const point = index === null ? undefined : chart.getDatasetMeta?.(0)?.data[index];
+  chart.tooltip?.setActiveElements(active, { x: point?.x ?? 0, y: point?.y ?? 0 });
+  chart.update?.();
+}
+
+/** The current day for the idle readout: same day and values as the headline. */
+function idleDay(rows: readonly WellnessRow[], today: IsoDate): ReadoutDay {
+  const current = currentValues(rows, today);
+  if (!current) return { date: today, fitness: null, fatigue: null, formPercent: null };
+  return {
+    date: current.asOf ?? today,
+    fitness: current.fitness,
+    fatigue: current.fatigue,
+    formPercent: current.formPercent ?? null,
+  };
+}
 
 /**
  * Fitness/Fatigue and Form % charts with range chips. Gets the 1Y rows once;
- * switching range only re-slices them on the client.
+ * switching range only re-slices them on the client. Hovering a day on either
+ * chart shows it in the shared readout and highlights it on the other chart.
  */
 export function TrainingCharts({
   rows,
@@ -59,7 +86,50 @@ export function TrainingCharts({
   today: IsoDate;
 }) {
   const [range, setRange] = useState<Range>(DEFAULT_RANGE);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const loadRef = useRef<LineChart>(null);
+  const formRef = useRef<LineChart>(null);
   const data = useMemo(() => toChartData(rows, range, today), [rows, range, today]);
+
+  const day: ReadoutDay =
+    hovered !== null && hovered < data.labels.length
+      ? {
+          date: data.labels[hovered],
+          fitness: data.fitness[hovered],
+          fatigue: data.fatigue[hovered],
+          formPercent:
+            displayedFormPercent({
+              fitness: data.fitness[hovered],
+              fatigue: data.fatigue[hovered],
+            }) ?? null,
+        }
+      : idleDay(rows, today);
+
+  function clearHover() {
+    setHovered(null);
+    highlight(loadRef.current, LOAD_DATASETS, null);
+    highlight(formRef.current, FORM_DATASETS, null);
+  }
+
+  const loadOptions: ChartOptions<"line"> = {
+    ...baseOptions,
+    onHover: (_event, elements) => {
+      const index = elements[0]?.index ?? null;
+      setHovered(index);
+      highlight(formRef.current, FORM_DATASETS, index);
+    },
+    plugins: { legend: { display: true } },
+  };
+
+  const formOptions: ChartOptions<"line"> = {
+    ...baseOptions,
+    onHover: (_event, elements) => {
+      const index = elements[0]?.index ?? null;
+      setHovered(index);
+      highlight(loadRef.current, LOAD_DATASETS, index);
+    },
+    plugins: { legend: { display: false } },
+  };
 
   const loadData: ChartJsData<"line", (number | null)[], IsoDate> = {
     labels: data.labels,
@@ -110,7 +180,10 @@ export function TrainingCharts({
             key={r}
             type="button"
             aria-pressed={r === range}
-            onClick={() => setRange(r)}
+            onClick={() => {
+              setRange(r);
+              clearHover();
+            }}
             style={{
               padding: "4px 10px",
               borderRadius: 999,
@@ -123,13 +196,26 @@ export function TrainingCharts({
           </button>
         ))}
       </div>
-      <h3>Fitness / Fatigue</h3>
-      <div style={{ position: "relative", width: "100%", height: 220 }}>
-        <Line data={loadData} options={loadOptions} aria-label="Fitness and Fatigue chart" />
-      </div>
-      <h3>Form %</h3>
-      <div style={{ position: "relative", width: "100%", height: 160 }}>
-        <Line data={formData} options={formOptions} aria-label="Form % chart" />
+      <HoverReadout day={day} />
+      <div onMouseLeave={clearHover}>
+        <h3>Fitness / Fatigue</h3>
+        <div style={{ position: "relative", width: "100%", height: 220 }}>
+          <Line
+            ref={loadRef}
+            data={loadData}
+            options={loadOptions}
+            aria-label="Fitness and Fatigue chart"
+          />
+        </div>
+        <h3>Form %</h3>
+        <div style={{ position: "relative", width: "100%", height: 160 }}>
+          <Line
+            ref={formRef}
+            data={formData}
+            options={formOptions}
+            aria-label="Form % chart"
+          />
+        </div>
       </div>
     </section>
   );
