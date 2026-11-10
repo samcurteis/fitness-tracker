@@ -79,20 +79,37 @@ function hasLoad(row: Load): boolean {
 }
 
 /**
- * The rows in `range` ending `today`, by date. When the data starts later than
- * the range, starts at the earliest row with Fitness and Fatigue.
+ * First date of the sequence shown for `range` ending `today`: the range start
+ * if any row on or before it has Fitness and Fatigue; otherwise the earliest
+ * in-range row with Fitness and Fatigue. Undefined when there is neither.
+ */
+function sequenceStart(
+  rows: readonly WellnessRow[],
+  range: Range,
+  today: IsoDate,
+): IsoDate | undefined {
+  const start = rangeStart(range, today);
+  if (rows.some((r) => r.date <= start && hasLoad(r))) return start;
+  return rows
+    .filter((r) => r.date >= start && r.date <= today && hasLoad(r))
+    .reduce<IsoDate | undefined>((min, r) => (!min || r.date < min ? r.date : min), undefined);
+}
+
+/**
+ * The rows in `range` ending `today`, by date, from the sequence start (see
+ * `sequenceStart`): the range start when data exists on or before it,
+ * otherwise the earliest row with Fitness and Fatigue.
  */
 export function sliceRange(
   rows: readonly WellnessRow[],
   range: Range,
   today: IsoDate,
 ): WellnessRow[] {
-  const start = rangeStart(range, today);
-  const inRange = rows
+  const start = sequenceStart(rows, range, today);
+  if (start === undefined) return [];
+  return rows
     .filter((r) => r.date >= start && r.date <= today)
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const first = inRange.findIndex(hasLoad);
-  return first === -1 ? [] : inRange.slice(first);
 }
 
 export type ChartData = {
@@ -111,19 +128,19 @@ export function formPercent(row: Load): number | null {
 }
 
 /**
- * One point per date from the start of the sliced range to `today`. Dates with
- * no row, or a row without values, are null points. No interpolation.
+ * One point per date from the sequence start (see `sliceRange`) to `today`.
+ * Dates with no row, or a row without values, are null points. No interpolation.
  */
 export function toChartData(
   rows: readonly WellnessRow[],
   range: Range,
   today: IsoDate,
 ): ChartData {
-  const sliced = sliceRange(rows, range, today);
   const data: ChartData = { labels: [], fitness: [], fatigue: [], formPercent: [] };
-  if (sliced.length === 0) return data;
-  const byDate = new Map(sliced.map((r) => [r.date, r]));
-  for (let d = sliced[0].date; d <= today; d = addDays(d, 1)) {
+  const start = sequenceStart(rows, range, today);
+  if (start === undefined) return data;
+  const byDate = new Map(sliceRange(rows, range, today).map((r) => [r.date, r]));
+  for (let d = start; d <= today; d = addDays(d, 1)) {
     const row = byDate.get(d);
     const ok = row !== undefined && hasLoad(row);
     data.labels.push(d);
