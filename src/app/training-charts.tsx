@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CategoryScale,
   Chart as ChartJS,
@@ -111,6 +111,34 @@ export function TrainingCharts({
     highlight(formRef.current, FORM_DATASETS, null);
   }
 
+  // One rule for touch and mouse: while a day is shown, a pointer outside both
+  // charts (headings included) returns the readout to the current day.
+  const loadBoxRef = useRef<HTMLDivElement>(null);
+  const formBoxRef = useRef<HTMLDivElement>(null);
+  const showingDay = hovered !== null;
+  useEffect(() => {
+    if (!showingDay) return;
+    const onPointer = (event: Event) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (loadBoxRef.current?.contains(target) || formBoxRef.current?.contains(target))
+      ) {
+        return;
+      }
+      setHovered(null);
+      highlight(loadRef.current, LOAD_DATASETS, null);
+      highlight(formRef.current, FORM_DATASETS, null);
+    };
+    const events = ["pointerdown", "touchstart", "pointermove", "mouseover"] as const;
+    for (const type of events) {
+      document.addEventListener(type, onPointer, { passive: true });
+    }
+    return () => {
+      for (const type of events) document.removeEventListener(type, onPointer);
+    };
+  }, [showingDay]);
+
   const loadOptions: ChartOptions<"line"> = {
     ...baseOptions,
     onHover: (_event, elements) => {
@@ -199,7 +227,7 @@ export function TrainingCharts({
       <HoverReadout day={day} />
       <div onMouseLeave={clearHover}>
         <h3>Fitness / Fatigue</h3>
-        <div style={{ position: "relative", width: "100%", height: 220 }}>
+        <div ref={loadBoxRef} style={{ position: "relative", width: "100%", height: 220 }}>
           <Line
             ref={loadRef}
             data={loadData}
@@ -208,7 +236,7 @@ export function TrainingCharts({
           />
         </div>
         <h3>Form %</h3>
-        <div style={{ position: "relative", width: "100%", height: 160 }}>
+        <div ref={formBoxRef} style={{ position: "relative", width: "100%", height: 160 }}>
           <Line
             ref={formRef}
             data={formData}
