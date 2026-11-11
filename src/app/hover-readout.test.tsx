@@ -205,3 +205,112 @@ describe("hover readout", () => {
     }
   });
 });
+
+describe("readout reset outside both charts", () => {
+  const other = { [LOAD]: FORM, [FORM]: LOAD } as const;
+
+  function expectOtherCleared(label: string) {
+    const chart = charts[other[label as keyof typeof other]];
+    expect(chart.setActiveElements).toHaveBeenLastCalledWith([]);
+    expect(chart.tooltip.setActiveElements).toHaveBeenLastCalledWith([], expect.anything());
+  }
+
+  for (const label of [LOAD, FORM]) {
+    test(`after a touch tap on ${label}, a touch on a heading returns to the current day`, () => {
+      render(<TrainingCharts rows={rows} today={today} />);
+      const labels = latest(label).data.labels;
+      hover(label, 9);
+      expectDay(labels[9]);
+      act(() => {
+        fireEvent.touchStart(screen.getByRole("heading", { name: "Form %" }));
+      });
+      expectIdle();
+      expectOtherCleared(label);
+    });
+
+    test(`after a touch tap on ${label}, a pointerdown on the page returns to the current day`, () => {
+      render(<TrainingCharts rows={rows} today={today} />);
+      const labels = latest(label).data.labels;
+      hover(label, 12);
+      expectDay(labels[12]);
+      act(() => {
+        fireEvent.pointerDown(document.body, { pointerType: "touch" });
+      });
+      expectIdle();
+      expectOtherCleared(label);
+    });
+
+    test(`after a touch tap on ${label}, a touch on the Fitness / Fatigue heading resets`, () => {
+      render(<TrainingCharts rows={rows} today={today} />);
+      hover(label, 5);
+      act(() => {
+        fireEvent.pointerDown(screen.getByRole("heading", { name: "Fitness / Fatigue" }), {
+          pointerType: "touch",
+        });
+      });
+      expectIdle();
+      expectOtherCleared(label);
+    });
+  }
+
+  test("after a touch tap on day i, a touch on day j shows day j with no reset between", () => {
+    render(<TrainingCharts rows={rows} today={today} />);
+    const labels = latest(LOAD).data.labels;
+    hover(LOAD, 4);
+    expectDay(labels[4]);
+    charts[FORM].setActiveElements.mockClear();
+    charts[LOAD].setActiveElements.mockClear();
+    const loadCanvas = screen.getByLabelText(LOAD);
+    act(() => {
+      fireEvent.touchStart(loadCanvas);
+      fireEvent.pointerDown(loadCanvas, { pointerType: "touch" });
+    });
+    hover(FORM, 15);
+    expectDay(labels[15]);
+    expect(charts[FORM].setActiveElements).not.toHaveBeenCalledWith([]);
+    expect(charts[LOAD].setActiveElements).not.toHaveBeenCalledWith([]);
+  });
+
+  test("a touch on the Form % canvas after a tap on Fitness/Fatigue keeps the day", () => {
+    render(<TrainingCharts rows={rows} today={today} />);
+    const labels = latest(LOAD).data.labels;
+    hover(LOAD, 6);
+    act(() => {
+      fireEvent.touchStart(screen.getByLabelText(FORM));
+    });
+    expectDay(labels[6]);
+  });
+
+  test("with the mouse, moving onto a heading inside the wrapper returns to the current day", () => {
+    render(<TrainingCharts rows={rows} today={today} />);
+    const labels = latest(FORM).data.labels;
+    hover(FORM, 8);
+    expectDay(labels[8]);
+    act(() => {
+      fireEvent.pointerMove(screen.getByRole("heading", { name: "Form %" }), {
+        pointerType: "mouse",
+      });
+    });
+    expectIdle();
+    expectOtherCleared(FORM);
+
+    hover(LOAD, 3);
+    expectDay(labels[3]);
+    act(() => {
+      fireEvent.mouseOver(screen.getByRole("heading", { name: "Form %" }));
+    });
+    expectIdle();
+    expectOtherCleared(LOAD);
+  });
+
+  test("with the mouse, moving within a chart keeps the day", () => {
+    render(<TrainingCharts rows={rows} today={today} />);
+    const labels = latest(FORM).data.labels;
+    hover(FORM, 8);
+    act(() => {
+      fireEvent.pointerMove(screen.getByLabelText(FORM), { pointerType: "mouse" });
+      fireEvent.mouseOver(screen.getByLabelText(LOAD));
+    });
+    expectDay(labels[8]);
+  });
+});
